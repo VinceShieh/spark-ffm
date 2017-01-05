@@ -9,7 +9,12 @@ object TestFFM extends App {
 
     val sc = new SparkContext(new SparkConf().setAppName("TESTFFM").setMaster("local[4]"))
 
-    val data = sc.textFile("data/a9a_ffm").map(_.split("\\s")).map(x => {
+    if (args.length != 7) {
+      println("testFFM <train_file> <k> <n_iters> <eta> <lambda> " + "<normal> <random>")
+      println("for example:\n" + "java -jar ffm.jar 0.1 0.01 15 4 true false tr_ va_")
+    }
+
+    val data = sc.textFile(args(0)).map(_.split("\\s")).map(x => {
       val y = if(x(0).toInt > 0 ) 1.0 else -1.0
       val nodeArray: Array[FFMNode] = x.drop(1).map(_.split(":")).map(x => {
         val node = new FFMNode; node.f = x(0).toInt; node.j = x(1).toInt; node.v = x(2).toDouble; node
@@ -25,12 +30,12 @@ object TestFFM extends App {
     val n = training.flatMap(x=>x._2).map(_.j).collect.reduceLeft(_ max _) + 1
 
     val param: FFMParameter = new FFMParameter().defaultParameter
-    param.eta = 0.1
-    param.lambda = 0.00002
-    param.n_iters = 10
-    param.k = 2
-    param.normalization = true
-    param.random = false
+    param.k = args(1).toInt
+    param.n_iters = args(2).toInt
+    param.eta = args(3).toDouble
+    param.lambda = args(4).toDouble
+    param.normalization = args(5).toBoolean
+    param.random = args(6).toBoolean
 
     val ffm: FFMModel = FFMWithAdag.train(training, m, n, param)
     val scores: RDD[(Double, Double)] = testing.map(x => {
