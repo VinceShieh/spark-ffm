@@ -18,10 +18,11 @@ import scala.util.Random
   * @param numFields
   * @param param
   */
-class FFMModel(val numFeatures: Int,
-               val numFields: Int,
-               val param: FFMParameter,
-               val weights: Array[Double]) extends Serializable {
+class FFMModel(numFeatures: Int,
+               numFields: Int,
+               param: FFMParameter,
+               weights: Array[Double],
+               sgd: Boolean = true ) extends Serializable {
 
   private var n: Int = numFeatures
   //numFeatures
@@ -32,7 +33,6 @@ class FFMModel(val numFeatures: Int,
   private var normalization: Boolean = param.normalization
   private var initMean: Double = 0
   private var initStd: Double = 0.01
-
 
   require(n > 0 && k > 0 && m > 0)
 
@@ -53,10 +53,17 @@ class FFMModel(val numFeatures: Int,
     return order
   }
 
+  def setOptimizer(op: String): Boolean = {
+    if("sgd" == op) true else false
+  }
+
   def predict(data: Array[FFMNode], r: Double = 1.0): Double = {
     var t = 0.0
-    val align0: Int = k * 2
-    val align1: Int = m * k * 2
+    val (align0, align1) = if(sgd) {
+      (k, m * k)
+    } else {
+      (k * 2, m * k * 2)
+    }
     for(n1 <- 0 to data.size - 1; n2 <- n1 + 1 to data.size - 1) {
       val j1 = data(n1).j
       val f1 = data(n1).f
@@ -77,11 +84,15 @@ class FFMModel(val numFeatures: Int,
   }
 }
 
-class FFMGradient(m: Int, n: Int, k:Int) extends Gradient {
+class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient {
+
   private def predict (data: Array[FFMNode], weights: Array[Double], r: Double = 1.0): Double = {
     var t = 0.0
-    val align0: Int = k * 2
-    val align1: Int = m * k * 2
+    val (align0, align1) = if(sgd) {
+      (k, m * k)
+    } else {
+      (k * 2, m * k * 2)
+    }
     for(n1 <- 0 to data.size - 1; n2 <- n1 + 1 to data.size - 1) {
       val j1 = data(n1).j
       val f1 = data(n1).f
@@ -100,6 +111,7 @@ class FFMGradient(m: Int, n: Int, k:Int) extends Gradient {
     }
     t
   }
+
   override def compute(data: Vector, label: Double, weights: Vector): (Vector, Double) = {
     throw new Exception("This part is merged into computeFFM()")
   }
@@ -108,15 +120,19 @@ class FFMGradient(m: Int, n: Int, k:Int) extends Gradient {
     throw new Exception("This part is merged into computeFFM()")
   }
   def computeFFM(label: Double, data2: Array[FFMNode], weights: Vector,
-                 r: Double = 1.0, eta: Double, lambda: Double, do_update: Boolean, iter: Int): (BDV[Double], Double) = {
+                 r: Double = 1.0, eta: Double, lambda: Double,
+                 do_update: Boolean, iter: Int, solver: Boolean = true): (BDV[Double], Double) = {
     val data = data2.toVector
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
     val t = predict(data2, weightsArray, r)
     val expnyt = math.exp(-label * t)
     val tr_loss = math.log(1 + expnyt)
     val kappa = -label * expnyt / (1 + expnyt)
-    val align0: Int = k * 2
-    val align1: Int = m * k * 2
+    val (align0, align1) = if(sgd) {
+      (k, m * k)
+    } else {
+      (k * 2, m * k * 2)
+    }
 
     for(n1 <- 0 to data.size - 1; n2 <- n1 + 1 to data.size - 1) {
       val j1 = data(n1).j
@@ -135,17 +151,20 @@ class FFMGradient(m: Int, n: Int, k:Int) extends Gradient {
         for(d <- 0 to k-1) {
           val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2_index + d)
           val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
-          val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
-          val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
-          weightsArray(w1_index + d) -= eta / (math.sqrt(wg1)) * g1
-          weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
-
-          weightsArray(wg1_index + d) = wg1
-          weightsArray(wg2_index + d) = wg2
+          if(sgd) {
+            weightsArray(w1_index + d) -= eta * g1
+            weightsArray(w2_index + d) -= eta * g2
+          } else {
+              val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
+              val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
+              weightsArray(w1_index + d) -= eta / (math.sqrt(wg1)) * g1
+              weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
+              weightsArray(wg1_index + d) = wg1
+              weightsArray(wg2_index + d) = wg2
+          }
         }
       }
     }
-
     (BDV(weightsArray), tr_loss)
   }
 }

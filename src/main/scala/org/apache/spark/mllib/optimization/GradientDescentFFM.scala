@@ -13,6 +13,7 @@ import scala.collection.mutable.ArrayBuffer
   */
 class GradientDescentFFM (private var gradient: Gradient, private var updater: Updater, private val param: FFMParameter) extends Optimizer {
 
+  val sgd = true
   private var stepSize: Double = 1.0
   private var numIterations: Int = 100
   private var regParam: Double = 0.0
@@ -102,11 +103,13 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
     this
   }
   def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
-    optimize(data.map(x => (x._1, x._2.toArray.asInstanceOf[Array[FFMNode]])), initialWeights, param)
+    optimize(data.map(x => (x._1, x._2.toArray.asInstanceOf[Array[FFMNode]])),
+      initialWeights, param, true)
 
   }
-  def optimize(data: RDD[(Double, Array[FFMNode])], initialWeights: Vector, param: FFMParameter): Vector = {
-    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, param)
+  def optimize(data: RDD[(Double, Array[FFMNode])], initialWeights: Vector, param: FFMParameter,
+               solver: Boolean): Vector = {
+    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, param, solver)
     weights
   }
 
@@ -117,7 +120,8 @@ object GradientDescentFFM {
                     data: RDD[(Double, Array[FFMNode])],
                     gradient: Gradient,
                     initialWeights: Vector,
-                    param: FFMParameter) : (Vector, Array[Double]) = {
+                    param: FFMParameter,
+                    solver: Boolean) : (Vector, Array[Double]) = {
     val numIterations = param.n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
     var weights = Vectors.dense(initialWeights.toArray)
@@ -134,7 +138,8 @@ object GradientDescentFFM {
 
       val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
-          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1), 1.0, param.eta, param.lambda, true, i)
+          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+            1.0, param.eta, param.lambda, true, i, solver)
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
