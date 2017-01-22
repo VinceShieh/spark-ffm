@@ -48,7 +48,7 @@ class FFMWithAdag(param: FFMParameter, m: Int, n: Int, solver: String) extends S
     * Run the algorithm with the configured parameters on an input RDD
     * of FFMNode entries.
     */
-  def run(input: RDD[(Double, Array[FFMNode])]): FFMModel = {
+  def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
     val gradient = new FFMGradient(m, n, k, sgd)
     val optimizer = new GradientDescentFFM(gradient, null, param)
 
@@ -72,7 +72,7 @@ object FFMWithAdag {
     * @param param
     * @return
     */
-  def train(data: RDD[(Double, Array[FFMNode])], m: Int, n: Int, param: FFMParameter, solver: String = "sgd"): FFMModel = {
+  def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int, param: FFMParameter, solver: String = "sgd"): FFMModel = {
     new FFMWithAdag(param, m, n, solver)
       .run(data)
   }

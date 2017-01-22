@@ -103,11 +103,10 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
     this
   }
   def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
-    optimize(data.map(x => (x._1, x._2.toArray.asInstanceOf[Array[FFMNode]])),
-      initialWeights, param, true)
+    Array(1).toVector.asInstanceOf[Vector]
 
   }
-  def optimize(data: RDD[(Double, Array[FFMNode])], initialWeights: Vector, param: FFMParameter,
+  def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector, param: FFMParameter,
                solver: Boolean): Vector = {
     val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, param, solver)
     weights
@@ -117,7 +116,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
 object GradientDescentFFM {
   def parallelAdag(
-                    data: RDD[(Double, Array[FFMNode])],
+                    data: RDD[(Double, Array[(Int, Int, Double)])],
                     gradient: Gradient,
                     initialWeights: Vector,
                     param: FFMParameter,
