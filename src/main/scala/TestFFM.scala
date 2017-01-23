@@ -27,15 +27,10 @@ object TestFFM extends App {
     val m = training.flatMap(x=>x._2).map(_._1).collect.reduceLeft(_ max _) //+ 1
     val n = training.flatMap(x=>x._2).map(_._2).collect.reduceLeft(_ max _) //+ 1
 
-    val param: FFMParameter = new FFMParameter().defaultParameter
-    param.k = args(1).toInt
-    param.n_iters = args(2).toInt
-    param.eta = args(3).toDouble
-    param.lambda = args(4).toDouble
-    param.normalization = args(5).toBoolean
-    param.random = args(6).toBoolean
+    val ffm: FFMModel = FFMWithAdag.train(training, m, n, k = args(1).toInt, n_iters = args(2).toInt,
+      eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(5).toBoolean,
+      random = args(6).toBoolean, "adagrad")
 
-    val ffm: FFMModel = FFMWithAdag.train(training, m, n, param, "adagrad")
     val scores: RDD[(Double, Double)] = testing.map(x => {
       val p = ffm.predict(x._2)
       val ret = if (p >= 0.5) 1.0 else -1.0

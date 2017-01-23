@@ -9,27 +9,28 @@ import scala.util.Random
 /**
   * Created by vincent on 17-1-4.
   */
-class FFMWithAdag(param: FFMParameter, m: Int, n: Int, solver: String) extends Serializable {
-  private val k = param.k
+class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda: Double,
+                  normalization: Boolean, random: Boolean, solver: String) extends Serializable {
+  private val k = k_num
   private val sgd = setOptimizer(solver)
 
   private def generateInitWeights(): Vector = {
     val W = if(sgd){
-      new Array[Double](n * m * param.k)
+      new Array[Double](n * m * k)
     } else {
-      new Array[Double](n * m * param.k *2)
+      new Array[Double](n * m * k *2)
     }
-    val coef = 0.5 / Math.sqrt(param.k)
+    val coef = 1.0 / Math.sqrt(k)
     val random = new Random()
     var position = 0
     if(sgd) {
-      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to param.k - 1) {
+      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to k - 1) {
         W(position) = coef * random.nextDouble()
         position += 1
       }
     } else {
-      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * param.k - 1) {
-        W(position) = if (d < param.k) coef * random.nextDouble() else 1.0
+      for (j <- 0 to n - 1; f <- 0 to m - 1; d <- 0 to 2 * k - 1) {
+        W(position) = if (d < k) coef * random.nextDouble() else 1.0
         position += 1
       }
     }
@@ -41,7 +42,7 @@ class FFMWithAdag(param: FFMParameter, m: Int, n: Int, solver: String) extends S
     */
   private def createModel(weights: Vector): FFMModel = {
     val values = weights.toArray
-    new FFMModel(n, m, param, values, sgd)
+    new FFMModel(n, m, k, n_iters, eta, lambda, normalization, random, values, sgd)
   }
 
   /**
@@ -50,10 +51,10 @@ class FFMWithAdag(param: FFMParameter, m: Int, n: Int, solver: String) extends S
     */
   def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
     val gradient = new FFMGradient(m, n, k, sgd)
-    val optimizer = new GradientDescentFFM(gradient, null, param)
+    val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
 
     val initWeights = generateInitWeights()
-    val weights = optimizer.optimize(input, initWeights, param, sgd)
+    val weights = optimizer.optimize(input, initWeights,n_iters, eta, lambda, sgd)
     createModel(weights)
   }
 
@@ -69,11 +70,19 @@ object FFMWithAdag {
     * @param data
     * @param m
     * @param n
-    * @param param
+    * @param k
+    * @param n_iters
+    * @param eta
+    * @param lambda
+    * @param normalization
+    * @param random
+    * @param solver
     * @return
     */
-  def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int, param: FFMParameter, solver: String = "sgd"): FFMModel = {
-    new FFMWithAdag(param, m, n, solver)
+  def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
+            k: Int, n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
+            solver: String = "sgd"): FFMModel = {
+    new FFMWithAdag(m, n, k, n_iters, eta, lambda, normalization, random, solver)
       .run(data)
   }
 }

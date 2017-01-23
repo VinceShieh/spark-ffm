@@ -16,11 +16,22 @@ import scala.util.Random
   *
   * @param numFeatures
   * @param numFields
-  * @param param
+  * @param k_num
+  * @param n_iters
+  * @param eta
+  * @param lambda
+  * @param isNorm
+  * @param random
+  * @param weights
+  * @param sgd
   */
 class FFMModel(numFeatures: Int,
                numFields: Int,
-               param: FFMParameter,
+               k_num: Int,
+               n_iters: Int,
+               eta: Double,
+               lambda: Double,
+               isNorm: Boolean, random: Boolean,
                weights: Array[Double],
                sgd: Boolean = true ) extends Serializable {
 
@@ -28,9 +39,9 @@ class FFMModel(numFeatures: Int,
   //numFeatures
   private var m: Int = numFields
   //numFields
-  private var k: Int = param.k
+  private var k: Int = k_num
   //numFactors
-  private var normalization: Boolean = param.normalization
+  private var normalization: Boolean = isNorm
   private var initMean: Double = 0
   private var initStd: Double = 0.01
 
@@ -95,24 +106,6 @@ class FFMModel(numFeatures: Int,
       }
       i += 1
     }
-    /*
-    for(n1 <- 0 to data.size - 1; n2 <- n1 + 1 to data.size - 1) {
-      val j1 = data(n1)._2
-      val f1 = data(n1)._1
-      val v1 = data(n1)._3
-      val j2 = data(n2)._2
-      val f2 = data(n2)._1
-      val v2 = data(n2)._3
-      if(j1 < n && f1 < m && j2 < n && f2 < m) {
-        val w1_index: Int = j1 * align1 + f2 * align0
-        val w2_index: Int = j2 * align1 + f1 * align0
-        val v: Double = v1 * v2 * r
-        for (d <- 0 to k - 1) {
-          t += weights(w1_index + d) * weights(w2_index + d) * v
-        }
-      }
-    }
-    */
     t
   }
 }
@@ -126,11 +119,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     } else {
       (k * 2, m * k * 2)
     }
-
-    //////rework data structure
-    //    val labelVec = Vectors.sparse(data2.size, data2.map(_._2), data2.map(_._3))
-    //    val fieldVec = Vectors.sparse(data2.size, data2.map(_._2), data2.map(_._1.toDouble))
-
     val valueSize = data.size //feature length
     val indicesArray = data.map(_._2) //feature index
     val valueArray: Array[(Int, Double)] = data.map(x => (x._1, x._3))
@@ -164,25 +152,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     }
       i += 1
     }
-    /////rework
-    /*
-    for(n1 <- 0 to data.size - 1; n2 <- n1 + 1 to data.size - 1) {
-      val j1 = data(n1)._2
-      val f1 = data(n1)._1
-      val v1 = data(n1)._3
-      val j2 = data(n2)._2
-      val f2 = data(n2)._1
-      val v2 = data(n2)._3
-      if(j1 < n && f1 < m && j2 < n && f2 < m) {
-        val w1_index: Int = j1 * align1 + f2 * align0
-        val w2_index: Int = j2 * align1 + f1 * align0
-        val v: Double = 2.0 * v1 * v2 * r
-        for (d <- 0 to k - 1) {
-          t += weights(w1_index + d) * weights(w2_index + d) * v
-        }
-      }
-    }
-    */
     t
   }
 
@@ -196,8 +165,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
   def computeFFM(label: Double, data2: Array[(Int, Int, Double)], weights: Vector,
                  r: Double = 1.0, eta: Double, lambda: Double,
                  do_update: Boolean, iter: Int, solver: Boolean = true): (BDV[Double], Double) = {
- //   val data = data2.toVector
-    // data2: [field, feature, value]
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
     val t = predict(data2, weightsArray, r)
     val expnyt = math.exp(-label * t)
@@ -208,11 +175,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     } else {
       (k * 2, m * k * 2)
     }
-    var tt = 0
-    //////rework data structure
-//    val labelVec = Vectors.sparse(data2.size, data2.map(_._2), data2.map(_._3))
-//    val fieldVec = Vectors.sparse(data2.size, data2.map(_._2), data2.map(_._1.toDouble))
-
     val valueSize = data2.size //feature length
     val indicesArray = data2.map(_._2) //feature index
     val valueArray: Array[(Int, Double)] = data2.map(x => (x._1, x._3))
@@ -252,7 +214,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
                 weightsArray(wg2_index + d) = wg2
 
               }
-              tt += 1
             }
           }
           ii += 1
@@ -260,77 +221,6 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
       }
       i += 1
     }
-    /////rework
-
-/*
-    for(n1 <- 0 to data2.size - 1; n2 <- n1 + 1 to data2.size - 1) {
-      val j1 = data2(n1)._2
-      val f1 = data2(n1)._1
-      val v1 = data2(n1)._3
-      val j2 = data2(n2)._2
-      val f2 = data2(n2)._1
-      val v2 = data2(n2)._3
-      if(j1 < n && f1 < m && j2 < n && f2 < m) {
-        val w1_index: Int = j1 * align1 + f2 * align0
-        val w2_index: Int = j2 * align1 + f1 * align0
-        val v: Double = 2.0 * v1 * v2 * r
-        val wg1_index: Int = w1_index + k
-        val wg2_index: Int = w2_index + k
-        val kappav: Double = kappa * v
-        for(d <- 0 to k-1) {
-          val g1: Double = lambda * weightsArray(w1_index + d) + kappav * weightsArray(w2e32q_index + d)
-          val g2: Double = lambda * weightsArray(w2_index + d) + kappav * weightsArray(w1_index + d)
-          if(sgd) {
-            weightsArray(w1_index + d) -= eta * g1
-            weightsArray(w2_index + d) -= eta * g2
-          } else {
-              val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
-              val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
-              weightsArray(w1_index + d) -= eta / (math.sqrt(wg1)) * g1
-              weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
-              weightsArray(wg1_index + d) = wg1
-              weightsArray(wg2_index + d) = wg2
-            tt += 1
-          }
-        }
-      }
-    }
-*/
-    println("write:" + tt + " values")
     (BDV(weightsArray), tr_loss)
   }
-}
-/**
-  * FFMParameter
-  */
-class FFMParameter extends Serializable {
-  var eta: Double = 0.0
-  var lambda: Double = 0.0
-  var n_iters: Int = 0
-  var k: Int = 0
-  var normalization: Boolean = false
-  var random: Boolean = false
-
-  def defaultParameter: FFMParameter = {
-    val parameter: FFMParameter = new FFMParameter
-    parameter.eta = 0.1
-    parameter.lambda = 0.0
-    parameter.n_iters = 15
-    parameter.k = 4
-    parameter.normalization = true
-    parameter.random = true
-    return parameter
-  }
-}
-
-/**
-  * FFMNode
-  */
-class FFMNode extends Serializable {
-  var v: Double = 0.0
-  // field_num
-  var f: Int = 0
-  // feature_num
-  var j: Int = 0
-  // value
 }
