@@ -2,10 +2,11 @@ package org.apache.spark.mllib.classification
 
 import java.io._
 
-import breeze.linalg.{DenseVector => BDV}
-
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
+import breeze.linalg.{norm, DenseVector => BDV}
+import it.unimi.dsi.fastutil.doubles.DoubleCollection
+import org.apache.spark.mllib.linalg.{DenseVector => MDV, Vectors, Vector => MV}
 import org.apache.spark.mllib.optimization.Gradient
+import org.apache.spark.mllib.sparseUtils._
 
 import scala.util.Random
 
@@ -155,17 +156,20 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     t
   }
 
-  override def compute(data: Vector, label: Double, weights: Vector): (Vector, Double) = {
+  def compute(data: Vector, label: Double, weights: Vector): (Vector, Double) = {
     throw new Exception("This part is merged into computeFFM()")
   }
 
-  override def compute(data: Vector, label: Double, weights: Vector, cumGradient: Vector): Double = {
+  override def compute(data: MV, label: Double, weights: MV, cumGradient: MV): Double = {
     throw new Exception("This part is merged into computeFFM()")
   }
-  def computeFFM(label: Double, data2: Array[(Int, Int, Double)], weights: Vector,
+
+  def computeFFM(label: Double, data2: Array[(Int, Int, Double)], weights: Vector, weightPerPartition: HashedSparseVector,
                  r: Double = 1.0, eta: Double, lambda: Double,
-                 do_update: Boolean, iter: Int, solver: Boolean = true): (BDV[Double], Double) = {
+                 do_update: Boolean, iter: Int, solver: Boolean = true): Double = {
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
+ //   val weightsArray: Array[Double] = weights.toArray
+//    val tt: DoubleCollection = weightsNew.hashmap.values()
     val t = predict(data2, weightsArray, r)
     val expnyt = math.exp(-label * t)
     val tr_loss = math.log(1 + expnyt)
@@ -205,6 +209,8 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
               if (sgd) {
                 weightsArray(w1_index + d) -= eta * g1
                 weightsArray(w2_index + d) -= eta * g2
+                weightPerPartition.update(w1_index + d, weightsArray(w1_index + d))
+                weightPerPartition.update(w2_index + d, weightsArray(w2_index + d))
               } else {
                 val wg1: Double = weightsArray(wg1_index + d) + g1 * g1
                 val wg2: Double = weightsArray(wg2_index + d) + g2 * g2
@@ -212,6 +218,10 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
                 weightsArray(w2_index + d) -= eta / (math.sqrt(wg2)) * g2
                 weightsArray(wg1_index + d) = wg1
                 weightsArray(wg2_index + d) = wg2
+                weightPerPartition.update(w1_index + d, weightsArray(w1_index + d))
+                weightPerPartition.update(w2_index + d, weightsArray(w2_index + d))
+                weightPerPartition.update(wg1_index + d, weightsArray(wg1_index + d))
+                weightPerPartition.update(wg2_index + d, weightsArray(wg2_index + d))
 
               }
             }
@@ -221,6 +231,80 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
       }
       i += 1
     }
-    (BDV(weightsArray), tr_loss)
+
+     tr_loss
+  }
+  def updateFFM(
+                 weightsOld: Vector,
+                 gradient: Vector,
+                 stepSize: Double,
+                 iter: Int,
+                 regParam: Double): (Vector, Double) = {
+    val thisIterStepSize = stepSize / math.sqrt(iter)
+    val weights = weightsOld.copy
+    BLAS.axpy(-thisIterStepSize, gradient, weights)
+    (weights, 0)
+  }
+
+  def computeGradient(label: Double, data2: Array[(Int, Int, Double)], weights: Vector, cumGradient: HashedSparseVector,
+                 r: Double = 1.0, eta: Double, lambda: Double,
+                 do_update: Boolean, iter: Int, solver: Boolean = true): Double = {
+    val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
+    //   val weightsArray: Array[Double] = weights.toArray
+    //    val tt: DoubleCollection = weightsNew.hashmap.values()
+    val t = predict(data2, weightsArray, r)
+    val expnyt = math.exp(-label * t)
+    val tr_loss = math.log(1 + expnyt)
+    val kappa = -label * expnyt / (1 + expnyt)
+    val (align0, align1) = if(sgd) {
+      (k, m * k)
+    } else {
+      (k * 2, m * k * 2)
+    }
+    val valueSize = data2.size //feature length
+    val indicesArray = data2.map(_._2) //feature index
+    val valueArray: Array[(Int, Double)] = data2.map(x => (x._1, x._3))
+    var i = 0
+    var ii = 0
+
+    // j: feature, f: field, v: value
+    while (i < valueSize) {
+      val j1 = data2(i)._2
+      val f1 = data2(i)._1
+      val v1 = data2(i)._3
+      if (j1 < n && f1 < m) {
+        ii = i + 1
+        while (ii < valueSize) {
+          val j2 = data2(ii)._2
+          val f2 = data2(ii)._1
+          val v2 = data2(ii)._3
+          if (j2 < n && f2 < m) {
+            val w1_index: Int = j1 * align1 + f2 * align0
+            val w2_index: Int = j2 * align1 + f1 * align0
+            val v: Double = v1 * v2 * r
+            val wg1_index: Int = w1_index + k
+            val wg2_index: Int = w2_index + k
+            val kappav: Double = kappa * v
+            for (d <- 0 to k - 1) {
+              val g1: Double = lambda * weights(w1_index + d) + kappav * weights(w2_index + d)
+              val g2: Double = lambda * weights(w2_index + d) + kappav * weights(w1_index + d)
+              val ia = cumGradient.hashmap.get(w1_index + d)
+
+              cumGradient.hashmap.addTo(w1_index + d, -eta * g1)
+              cumGradient.hashmap.addTo(w2_index + d, -eta * g2)
+
+              /*
+
+              cumGradient.update(w1_index+d, g1)
+              cumGradient.update(w2_index+d, g2)*/
+            }
+          }
+          ii += 1
+        }
+      }
+      i += 1
+    }
+
+    tr_loss
   }
 }

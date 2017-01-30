@@ -1,9 +1,11 @@
 package org.apache.spark.mllib.optimization
 
 import breeze.linalg.{DenseVector => BDV}
+import org.apache.spark.SparkEnv
 import org.apache.spark.annotation.Experimental
 import org.apache.spark.mllib.classification._
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Vector => MLV}
+import org.apache.spark.mllib.sparseUtils._
 import org.apache.spark.rdd.RDD
 
 import scala.collection.mutable.ArrayBuffer
@@ -104,8 +106,8 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
     this.updater = updater
     this
   }
-  def optimize(data: RDD[(Double, Vector)], initialWeights: Vector): Vector = {
-    Array(1).toVector.asInstanceOf[Vector]
+  def optimize(data: RDD[(Double, MLV)], initialWeights: MLV): MLV = {
+    Array(1).toVector.asInstanceOf[MLV]
 
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
@@ -128,9 +130,18 @@ object GradientDescentFFM {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
     var weights = Vectors.dense(initialWeights.toArray)
-    val n = weights.size
-    val slices = data.getNumPartitions
-
+   // val slices = data.getNumPartitions
+    def simulateWeights(first: (HashedSparseVector, Double, Int), second: (HashedSparseVector, Double, Int))
+    : (HashedSparseVector, Double, Int) = {
+      val iterSecond = second._1.hashmap.int2DoubleEntrySet.fastIterator()
+      while (iterSecond.hasNext()) {
+        val entry = iterSecond.next()
+println("addTo begin:" + entry.getIntKey)
+        first._1.hashmap.addTo(entry.getIntKey, entry.getDoubleValue)
+println("addTo done:" + entry.getIntKey)
+      }
+      (first._1, first._2 + second._2, first._3 + second._3)
+    }
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 1
@@ -138,16 +149,70 @@ object GradientDescentFFM {
       val bcWeights = data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
       // compute and sum up the subgradients on this subset (this is one map-reduce)
+//sgd
+/*
+      val (gradientSum: HashedSparseVector, lSum, miniBatchSize) = data.mapPartitions { points =>
+        var loss = 0.0
+        val gradientPerPartition = new HashedSparseVector()
+        var size = 0
+        points.foreach { point =>
+          loss += gradient.asInstanceOf[FFMGradient].computeGradient(point._1, point._2, bcWeights.value, gradientPerPartition,
+            1.0, eta, lambda, true, i, solver)
+          size += 1
+        }
+        Iterator((gradientPerPartition, loss, size))
+      }.reduce(simulateWeights)
+      stochasticLossHistory.append(lSum / miniBatchSize)
 
-      val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+      BLAS.dot(1 / miniBatchSize.toDouble, gradientSum)
+      var changeNum = 0
+      val iterG = gradientSum.hashmap.int2DoubleEntrySet.fastIterator()
+
+      while (iterG.hasNext()) {
+        val entry = iterG.next()
+        val t1 = weights(entry.getIntKey)
+        weights(entry.getIntKey) = entry.getDoubleValue
+        if(weights(entry.getIntKey) != t1) {
+          val diff = weights(entry.getIntKey) - t1
+          changeNum += 1
+    //      println("value update at:" + entry.getIntKey)
+          }
+      }
+*/
+      /*sgd*/
+
+  // paralleledSGD
+      val (wSum: HashedSparseVector, lSum, miniBatchSize) = data.mapPartitions { points =>
+        var loss = 0.0
+        val weightsPerPartition = new HashedSparseVector()
+        var size = 0
+        points.foreach { point =>
+          loss += gradient.asInstanceOf[FFMGradient].computeFFM(point._1, point._2, bcWeights.value,
+            weightsPerPartition, 1.0, eta, lambda, true, i, solver)
+          size += 1
+        }
+        Iterator((weightsPerPartition, loss, size))
+      }./*reduce(simulateWeights)*/treeReduce(simulateWeights,2)
+
+      stochasticLossHistory.append(lSum / miniBatchSize)
+
+      BLAS.dot(1 / miniBatchSize.toDouble, wSum)
+      val iterW = wSum.hashmap.int2DoubleEntrySet.fastIterator()
+      while (iterW.hasNext()) {
+        val entry = iterW.next()
+        weights(entry.getIntKey) = entry.getDoubleValue
+      }
+ /*paralleledSGD*/
+
+/*
+      val (wSum: HashedSparseVector, lSum) = data.treeAggregate(bcWeights.value, 0.0)(
         seqOp = (c, v) => {
-          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), bcWeights.value,
             1.0, eta, lambda, true, i, solver)
         },
-        combOp = (c1, c2) => {
-          (c1._1 + c2._1, c1._2 + c2._2)
-        }) // TODO: add depth level
-
+        simulateWeights
+      ) // TODO: add depth level
+*/
       /*
       val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
@@ -158,10 +223,15 @@ object GradientDescentFFM {
         }, 7)
 
       */
-      weights = Vectors.dense(wSum.toArray.map(_ / slices))
-      stochasticLossHistory += lSum / slices
-      println("iter:" + (i + 1) + ",tr_loss:" + lSum / slices)
+     // weights = Vectors.dense(wSum.toArray.map(_ / slices))
+ //     weights = Vectors.dense(wSum.toArray.map(_ / slices))
+//      hashedWeights = wSum
+//      BLAS.axpy(1 / slices.toDouble, wSum, weights)
+//      stochasticLossHistory += lSum / slices
+      println("iter:" + (i + 1) + ",tr_loss:" + lSum / miniBatchSize) // + ", numChange:" +  changeNum)
       i += 1
+
+      SparkEnv.get.blockManager.removeBroadcast(bcWeights.id, true)
     }
 
     (weights, stochasticLossHistory.toArray)

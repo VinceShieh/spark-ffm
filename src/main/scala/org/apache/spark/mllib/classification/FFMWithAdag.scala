@@ -1,8 +1,9 @@
 package org.apache.spark.mllib.classification
 
-import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.linalg.{Vector=>MLV, Vectors=>MLVS}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.optimization._
+import org.apache.spark.mllib.sparseUtils._
 import org.apache.spark.network.protocol.Encoders.Strings
 
 import scala.util.Random
@@ -16,8 +17,10 @@ class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda:
 
   private def generateInitWeights(): Vector = {
     val W = if(sgd){
+      println("allocating:" + n * m * k)
       new Array[Double](n * m * k)
     } else {
+      println("allocating:" + n * m * k *2)
       new Array[Double](n * m * k *2)
     }
     val coef = 1.0 / Math.sqrt(k)

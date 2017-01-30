@@ -4,13 +4,13 @@ import org.apache.spark.mllib.linalg.DenseVector
 import org.apache.spark.rdd.RDD
 
 
-object TestFFM extends App {
+object TestFFMpsgd extends App {
 
   override def main(args: Array[String]): Unit = {
 
-    val sc = new SparkContext(new SparkConf().setAppName("TESTFFM").setMaster("local[4]"))
+    val sc = new SparkContext(new SparkConf().setAppName("TESTFFM"))
 
-    if (args.length != 7) {
+    if (args.length != 8) {
       println("testFFM <train_file> <k> <n_iters> <eta> <lambda> " + "<normal> <random>")
     }
 
@@ -20,8 +20,8 @@ object TestFFM extends App {
         (x(0).toInt, x(1).toInt, x(2).toDouble)
       })
       (y, nodeArray)
-    }).repartition(4)
-    val splits = data.randomSplit(Array(0.7, 0.3))
+    }).repartition(args(7).toInt)
+    val splits = data.randomSplit(Array(0.8, 0.2))
     val (training: RDD[(Double, Array[(Int, Int, Double)])], testing) = (splits(0), splits(1))
 
     val m = training.flatMap(x=>x._2).map(_._1).collect.reduceLeft(_ max _) //+ 1
@@ -29,7 +29,7 @@ object TestFFM extends App {
 
     val ffm: FFMModel = FFMWithAdag.train(training, m, n, k = args(1).toInt, n_iters = args(2).toInt,
       eta = args(3).toDouble, lambda = args(4).toDouble, normalization = args(5).toBoolean,
-      random = args(6).toBoolean, "adagrad")
+      random = args(6).toBoolean, "sgd")
 
     val scores: RDD[(Double, Double)] = testing.map(x => {
       val p = ffm.predict(x._2)
@@ -37,7 +37,8 @@ object TestFFM extends App {
       (ret, x._1)
     })
     val accuracy = scores.filter(x => x._1 == x._2).count().toDouble / scores.count()
-    println(s"accuracy = $accuracy")
+//    println(s"accuracy = $accuracy")
+    println("accuracy:" + accuracy + ",iteration:" + args(2).toInt)
   }
 }
 
