@@ -2,4 +2,5 @@ language: scala
 scala:
    - 2.11.8
 script:
+   chmod +x run.sh
    ./run.sh 
