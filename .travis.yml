@@ -2,7 +2,6 @@ language: scala
 scala:
    - 2.11.8
 script:
-   - chmod +x run.sh
    - pwd
-   - ls -a
-   - ls .. 
+   - cat /etc/profile
+   - cat /etc/bashrc
