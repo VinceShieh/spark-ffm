@@ -21,7 +21,7 @@ import java.io._
 
 import breeze.linalg.{DenseVector => BDV}
 
-import org.apache.spark.mllib.linalg.{DenseVector, Vector, Vectors}
+import org.apache.spark.mllib.linalg.{DenseVector, Vector}
 import org.apache.spark.mllib.optimization.Gradient
 
 import scala.util.Random
@@ -31,20 +31,22 @@ import scala.util.Random
   */
 /**
   *
-  * @param numFeatures
-  * @param numFields
-  * @param k_num
-  * @param n_iters
-  * @param eta
-  * @param lambda
-  * @param isNorm
-  * @param random
-  * @param weights
-  * @param sgd
+  * @param numFeatures number of features
+  * @param numFields number of fields
+  * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
+  *            one-way interactions should be used, and the number of factors that are used for pairwise
+  *            interactions, respectively.
+  * @param n_iters number of iterations
+  * @param eta step size to be used for each iteration
+  * @param lambda regularization for pairwise interations
+  * @param isNorm whether normalize data
+  * @param random whether randomize data
+  * @param weights weights of FFMModel
+  * @param sgd "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
 class FFMModel(numFeatures: Int,
                numFields: Int,
-               k_num: Int,
+               dim: (Boolean, Boolean, Int),
                n_iters: Int,
                eta: Double,
                lambda: Double,
@@ -56,8 +58,10 @@ class FFMModel(numFeatures: Int,
   //numFeatures
   private var m: Int = numFields
   //numFields
-  private var k: Int = k_num
+  private var k: Int = dim._3
   //numFactors
+  private var k0 = dim._1
+  private var k1 = dim._2
   private var normalization: Boolean = isNorm
   private var initMean: Double = 0
   private var initStd: Double = 0.01
@@ -86,7 +90,9 @@ class FFMModel(numFeatures: Int,
   }
 
   def predict(data: Array[(Int, Int, Double)], r: Double = 1.0): Double = {
-    var t = 0.0
+
+    var t = if (k0) weights(weights.length - 1) else 0.0
+
     val (align0, align1) = if(sgd) {
       (k, m * k)
     } else {
@@ -99,11 +105,15 @@ class FFMModel(numFeatures: Int,
     val valueArray: Array[(Int, Double)] = data.map(x => (x._1, x._3))
     var i = 0
     var ii = 0
+    val pos = if (sgd) n * m * k else n * m * k * 2
     // j: feature, f: field, v: value
     while (i < valueSize) {
       val j1 = data(i)._2
       val f1 = data(i)._1
       val v1 = data(i)._3
+
+      if(k1) t += weights(pos + j1) * v1
+
       ii = i + 1
       if (j1 < n && f1 < m) {
         while (ii < valueSize) {
@@ -127,10 +137,16 @@ class FFMModel(numFeatures: Int,
   }
 }
 
-class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient {
+class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = true) extends Gradient {
+
+  private val k0 = dim._1
+  private val k1 = dim._2
+  private val k = dim._3
 
   private def predict (data: Array[(Int, Int, Double)], weights: Array[Double], r: Double = 1.0): Double = {
-    var t = 0.0
+
+    var t = if (k0) weights(weights.length - 1) else 0.0
+
     val (align0, align1) = if(sgd) {
       (k, m * k)
     } else {
@@ -145,12 +161,16 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     val b = indicesArray.length
     val c = valueArray.length
     val tt = 0
+    val pos = if (sgd) n * m * k else n * m * k * 2
     // j: feature, f: field, v: value
     while (i < valueSize) {
       val j1 = data(i)._2
       val f1 = data(i)._1
       val v1 = data(i)._3
       ii = i + 1
+
+      if(k1) t += weights(pos + j1) * v1
+
       if (j1 < n && f1 < m) {
         while (ii < valueSize) {
         val j2 = data(ii)._2
@@ -198,11 +218,15 @@ class FFMGradient(m: Int, n: Int, k: Int, sgd: Boolean = true) extends Gradient 
     var i = 0
     var ii = 0
 
+    val r0, r1 = 0.0
+    val pos = if (sgd) n * m * k else n * m * k * 2
+    if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
     // j: feature, f: field, v: value
     while (i < valueSize) {
       val j1 = data2(i)._2
       val f1 = data2(i)._1
       val v1 = data2(i)._3
+      if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1))
       if (j1 < n && f1 < m) {
         ii = i + 1
         while (ii < valueSize) {
