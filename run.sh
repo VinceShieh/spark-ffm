@@ -8,5 +8,5 @@ $SPARK_HOME/bin/spark-submit \
     3 \
     0.1 \
     0.00002 \
-    false \
-    false
+    true \
+    true

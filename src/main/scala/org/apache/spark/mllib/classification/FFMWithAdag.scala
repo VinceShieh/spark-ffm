@@ -59,12 +59,12 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
         (0, 0)
     }
     val W = if(sgd){
-      //val tmpSize = n * m * k + num_k1 + num_k0
-      //println("allocating:" + tmpSize)
+      val tmpSize = n * m * k + num_k1 + num_k0
+      println("allocating:" + tmpSize)
       new Array[Double](n * m * k + num_k1 + num_k0)
     } else {
-      //val tmpSize = n * m * k * 2 + num_k1 + num_k0
-      //println("allocating:" + tmpSize)
+      val tmpSize = n * m * k * 2 + num_k1 + num_k0
+      println("allocating:" + tmpSize)
       new Array[Double](n * m * k * 2 + num_k1 + num_k0)
     }
     val coef = 1.0 / Math.sqrt(k)
