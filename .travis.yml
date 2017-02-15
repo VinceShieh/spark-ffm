@@ -1,7 +1,4 @@
 language: scala
+
 scala:
    - 2.11.8
-script:
-   - pwd
-   - cat /etc/profile
-   - cat /etc/bashrc
