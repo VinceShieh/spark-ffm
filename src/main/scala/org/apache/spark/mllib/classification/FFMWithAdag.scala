@@ -20,22 +20,52 @@ package org.apache.spark.mllib.classification
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.optimization._
-import org.apache.spark.network.protocol.Encoders.Strings
 
 import scala.util.Random
 /**
   * Created by vincent on 17-1-4.
   */
-class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda: Double,
+/**
+  *
+  * @param m number of fields of input data
+  * @param n number of features of input data
+  * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
+  *            one-way interactions should be used, and the number of factors that are used for pairwise
+  *            interactions, respectively.
+  * @param n_iters number of iterations
+  * @param eta step size to be used for each iteration
+  * @param lambda regularization for pairwise interactions
+  * @param normalization whether normalize data
+  * @param random whether randomize data
+  * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+  */
+class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double,
                   normalization: Boolean, random: Boolean, solver: String) extends Serializable {
-  private val k = k_num
+  private val k0 = dim._1
+  private val k1 = dim._2
+  private val k = dim._3
   private val sgd = setOptimizer(solver)
 
+  println("get numFields:" + m + ",nunFeatures:" + n + ",numFactors:" + k)
   private def generateInitWeights(): Vector = {
+    val (num_k0, num_k1) = (k0, k1) match {
+      case (true, true) =>
+        (n, 1)
+      case(true, false) =>
+        (n, 0)
+      case(false, true) =>
+        (0, 1)
+      case(false, false) =>
+        (0, 0)
+    }
     val W = if(sgd){
-      new Array[Double](n * m * k)
+      val tmpSize = n * m * k + num_k1 + num_k0
+      println("allocating:" + tmpSize)
+      new Array[Double](n * m * k + num_k1 + num_k0)
     } else {
-      new Array[Double](n * m * k *2)
+      val tmpSize = n * m * k * 2 + num_k1 + num_k0
+      println("allocating:" + tmpSize)
+      new Array[Double](n * m * k * 2 + num_k1 + num_k0)
     }
     val coef = 1.0 / Math.sqrt(k)
     val random = new Random()
@@ -51,6 +81,13 @@ class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda:
         position += 1
       }
     }
+    if (k1) {
+      for (p <- 0 to n - 1) {
+        W(position) = 0.0
+        position += 1
+      }
+    }
+    if (k0) W(position) = 0.0
     Vectors.dense(W)
   }
 
@@ -59,7 +96,7 @@ class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda:
     */
   private def createModel(weights: Vector): FFMModel = {
     val values = weights.toArray
-    new FFMModel(n, m, k, n_iters, eta, lambda, normalization, random, values, sgd)
+    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, values, sgd)
   }
 
   /**
@@ -67,7 +104,7 @@ class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda:
     * of FFMNode entries.
     */
   def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
-    val gradient = new FFMGradient(m, n, k, sgd)
+    val gradient = new FFMGradient(m, n, dim, sgd)
     val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
 
     val initWeights = generateInitWeights()
@@ -84,22 +121,24 @@ class FFMWithAdag(m: Int, n: Int, k_num: Int, n_iters: Int, eta: Double, lambda:
 object FFMWithAdag {
   /**
     *
-    * @param data
-    * @param m
-    * @param n
-    * @param k
-    * @param n_iters
-    * @param eta
-    * @param lambda
-    * @param normalization
-    * @param random
-    * @param solver
-    * @return
+    * @param data input data RDD
+    * @param m number of fields of input data
+    * @param n number of features of input data
+    * @param dim A (Boolean,Boolean,Int) 3-Tuple stands for whether the global bias term should be used, whether the
+    *            one-way interactions should be used, and the number of factors that are used for pairwise
+    *            interactions, respectively.
+    * @param n_iters number of iterations
+    * @param eta step size to be used for each iteration
+    * @param lambda regularization for pairwise interactions
+    * @param normalization whether normalize data
+    * @param random whether randomize data
+    * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
+    * @return FFMModel
     */
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
-            k: Int, n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
+            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
             solver: String = "sgd"): FFMModel = {
-    new FFMWithAdag(m, n, k, n_iters, eta, lambda, normalization, random, solver)
+    new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, random, solver)
       .run(data)
   }
 }
