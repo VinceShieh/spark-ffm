@@ -50,11 +50,11 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
   private def generateInitWeights(): Vector = {
     val (num_k0, num_k1) = (k0, k1) match {
       case (true, true) =>
-        (n, 1)
+        (1, n)
       case(true, false) =>
-        (n, 0)
+        (1, 0)
       case(false, true) =>
-        (0, 1)
+        (0, n)
       case(false, false) =>
         (0, 0)
     }
