@@ -21,11 +21,19 @@ import java.io._
 
 import breeze.linalg.{DenseVector => BDV}
 
+import org.json4s.DefaultFormats
+import org.json4s.JsonDSL._
+import org.json4s.jackson.JsonMethods._
+import org.apache.spark.SparkContext
 import org.apache.spark.mllib.linalg.{DenseVector, Vector}
 import org.apache.spark.mllib.optimization.Gradient
+import org.apache.spark.sql.{DataFrame, SQLContext}
+import org.apache.spark.mllib.util.Loader._
+import org.apache.spark.mllib.util.{Loader, Saveable}
 
 import scala.util.Random
 
+import scala.collection.mutable.WrappedArray
 /**
   * Created by vincent on 16-12-19.
   */
@@ -44,15 +52,16 @@ import scala.util.Random
   * @param weights weights of FFMModel
   * @param sgd "true": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
-class FFMModel(numFeatures: Int,
-               numFields: Int,
-               dim: (Boolean, Boolean, Int),
-               n_iters: Int,
-               eta: Double,
-               lambda: Double,
-               isNorm: Boolean, random: Boolean,
-               weights: Array[Double],
-               sgd: Boolean = true ) extends Serializable {
+class FFMModel(val numFeatures: Int,
+               val numFields: Int,
+               val dim: (Boolean, Boolean, Int),
+               val n_iters: Int,
+               val eta: Double,
+               val lambda: Double,
+               val isNorm: Boolean,
+               val random: Boolean,
+               val weights: Array[Double],
+               val sgd: Boolean = true ) extends Serializable with Saveable {
 
   private var n: Int = numFeatures
   //numFeatures
@@ -135,7 +144,98 @@ class FFMModel(numFeatures: Int,
     }
     t
   }
+
+  override protected def formatVersion: String = "1.0"
+
+  override def save(sc: SparkContext, path: String): Unit = {
+    val data = FFMModel.SaveLoadV1_0.Data(numFeatures, numFields, dim._1, dim._2, dim._3, n_iters, eta, lambda, isNorm, random, weights, sgd)
+    FFMModel.SaveLoadV1_0.save(sc, path, data)
+  }
 }
+
+object FFMModel extends Loader[FFMModel] {
+
+  private object SaveLoadV1_0 {
+
+    def thisFormatVersion = "1.0"
+
+    def thisClassName = "com.intel.imllib.ffm.classification.FFMModel$SaveLoadV1_0$"
+
+    /** Model data for model import/export */
+    case class Data(numFeatures: Int, numFields: Int, dim0: Boolean, dim1: Boolean, dim2: Int,
+                      n_iters: Int, eta: Double, lambda: Double, isNorm: Boolean,
+                      random: Boolean, weights: Array[Double], sgd: Boolean)
+
+    def save(sc: SparkContext, path: String, data: Data): Unit = {
+      val sqlContext = new SQLContext(sc)
+      import sqlContext.implicits._
+      // Create JSON metadata.
+      val metadata = compact(render(
+        ("class" -> this.getClass.getName) ~ ("version" -> thisFormatVersion) ~
+          ("numFeatures" -> data.numFeatures) ~ ("numFields" -> data.numFields) ~
+          ("dim0" -> data.dim0) ~ ("dim1" -> data.dim1) ~ ("dim2" -> data.dim2)
+          ~ ("n_iters" -> data.n_iters) ~ ("eta" -> data.eta) ~ ("lambda" -> data.lambda)
+          ~ ("isNorm" -> data.isNorm) ~ ("random" -> data.random) ~ ("sgd" -> data.sgd)))
+      sc.parallelize(Seq(metadata), 1).saveAsTextFile(metadataPath(path))
+
+      // Create Parquet data.
+      val dataRDD: DataFrame = sc.parallelize(Seq(data), 1).toDF()
+      dataRDD.write.parquet(dataPath(path))
+    }
+
+    def load(sc: SparkContext, path: String): FFMModel = {
+      val sqlContext = new SQLContext(sc)
+      // Load Parquet data.
+      val dataRDD = sqlContext.parquetFile(dataPath(path))
+      // Check schema explicitly since erasure makes it hard to use match-case for checking.
+      checkSchema[Data](dataRDD.schema)
+      val dataArray = dataRDD.select("numFeatures", "numFields", "dim0", "dim1", "dim2", "n_iters", "eta", "lambda", "isNorm", "random", "weights", "sgd").take(1)
+      assert(dataArray.length == 1, s"Unable to load FMModel data from: ${dataPath(path)}")
+      val data = dataArray(0)
+      val numFeatures = data.getInt(0)
+      val numFields = data.getInt(1)
+      val dim0 = data.getBoolean(2)
+      val dim1 = data.getBoolean(3)
+      val dim2 = data.getInt(4)
+      val n_iters = data.getInt(5)
+      val eta = data.getDouble(6)
+      val lambda = data.getDouble(7)
+      val isNorm = data.getBoolean(8)
+      val random = data.getBoolean(9)
+      val weights = data.getAs[WrappedArray[Double]](10).toArray
+      val sgd = data.getBoolean(11)
+      val dim = (dim0, dim1, dim2)
+      new FFMModel(numFeatures, numFields, dim, n_iters, eta, lambda, isNorm, random, weights, sgd)
+    }
+  }
+
+  override def load(sc: SparkContext, path: String): FFMModel = {
+    implicit val formats = DefaultFormats
+
+    val (loadedClassName, version, metadata) = loadMetadata(sc, path)
+    val classNameV1_0 = SaveLoadV1_0.thisClassName
+
+    (loadedClassName, version) match {
+      case (className, "1.0") if className == classNameV1_0 =>
+        val numFeatures = (metadata \ "numFeatures").extract[Int]
+        val numFields = (metadata \ "numFields").extract[Int]
+        val model = SaveLoadV1_0.load(sc, path)
+        assert(model.numFeatures == numFeatures,
+          s"FFMModel.load expected $numFeatures features," +
+            s" but model had ${model.numFeatures} featues")
+        assert(model.numFields == numFields,
+          s"FFMModel.load expected $numFields fields," +
+            s" but model had ${model.numFields} fields")
+        model
+
+      case _ => throw new Exception(
+        s"FFMModel.load did not recognize model with (className, format version):" +
+          s"($loadedClassName, $version).  Supported:\n" +
+          s"  ($classNameV1_0, 1.0)")
+    }
+  }
+}
+
 
 class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = true) extends Gradient {
 
@@ -168,7 +268,6 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
       val f1 = data(i)._1
       val v1 = data(i)._3
       ii = i + 1
-
       if(k1) t += weights(pos + j1) * v1
 
       if (j1 < n && f1 < m) {
