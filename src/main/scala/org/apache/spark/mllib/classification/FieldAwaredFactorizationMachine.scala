@@ -142,7 +142,7 @@ class FFMModel(val numFeatures: Int,
       }
       i += 1
     }
-    t
+    1 / (1 + math.exp(-t))
   }
 
   override protected def formatVersion: String = "1.0"
