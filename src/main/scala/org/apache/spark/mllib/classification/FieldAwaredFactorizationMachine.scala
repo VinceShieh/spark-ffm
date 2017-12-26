@@ -117,7 +117,7 @@ class FFMModel(val numFeatures: Int,
     val pos = if (sgd) n * m * k else n * m * k * 2
     // j: feature, f: field, v: value
     while (i < valueSize) {
-      val j1 = data(i)._2 - 1
+      val j1 = data(i)._2
       val f1 = data(i)._1
       val v1 = data(i)._3
 
@@ -264,7 +264,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     val pos = if (sgd) n * m * k else n * m * k * 2
     // j: feature, f: field, v: value
     while (i < valueSize) {
-      val j1 = data(i)._2 - 1
+      val j1 = data(i)._2
       val f1 = data(i)._1
       val v1 = data(i)._3
       ii = i + 1
@@ -322,7 +322,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
     // j: feature, f: field, v: value
     while (i < valueSize) {
-      val j1 = data2(i)._2 - 1
+      val j1 = data2(i)._2
       val f1 = data2(i)._1
       val v1 = data2(i)._3
       if(k1) weightsArray(pos + j1) -= eta * (v1 * kappa + r1 * weightsArray(pos + j1))
