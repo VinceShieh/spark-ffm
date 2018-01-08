@@ -34,12 +34,12 @@ import scala.util.Random
   *            interactions, respectively.
   * @param n_iters number of iterations
   * @param eta step size to be used for each iteration
-  * @param lambda regularization for pairwise interactions
+    * @param regParam A (Double, Double, Double) 3-Tuple stands for regularization params of bias, one-way interactions and pairwise interactions
   * @param normalization whether normalize data
   * @param random whether randomize data
   * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
-class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double,
+class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double, Double, Double),
                   normalization: Boolean, random: Boolean, solver: String) extends Serializable {
   private val k0 = dim._1
   private val k1 = dim._2
@@ -96,7 +96,7 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     */
   private def createModel(weights: Vector): FFMModel = {
     val values = weights.toArray
-    new FFMModel(n, m, dim, n_iters, eta, lambda, normalization, random, values, sgd)
+    new FFMModel(n, m, dim, n_iters, eta, regParam, normalization, random, values, sgd)
   }
 
   /**
@@ -105,10 +105,10 @@ class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, et
     */
   def run(input: RDD[(Double, Array[(Int, Int, Double)])]): FFMModel = {
     val gradient = new FFMGradient(m, n, dim, sgd)
-    val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, lambda, normalization, random)
+    val optimizer = new GradientDescentFFM(gradient, null, k, n_iters, eta, regParam, normalization, random)
 
     val initWeights = generateInitWeights()
-    val weights = optimizer.optimize(input, initWeights,n_iters, eta, lambda, sgd)
+    val weights = optimizer.optimize(input, initWeights,n_iters, eta, regParam, sgd)
     createModel(weights)
   }
 
@@ -129,16 +129,16 @@ object FFMWithAdag {
     *            interactions, respectively.
     * @param n_iters number of iterations
     * @param eta step size to be used for each iteration
-    * @param lambda regularization for pairwise interactions
+    * @param regParam A (Double, Double, Double) 3-Tuple stands for regularization params of bias, one-way interactions and pairwise interactions
     * @param normalization whether normalize data
     * @param random whether randomize data
     * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
     * @return FFMModel
     */
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
-            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, lambda: Double, normalization: Boolean, random: Boolean,
+            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double,Double,Double), normalization: Boolean, random: Boolean,
             solver: String = "sgd"): FFMModel = {
-    new FFMWithAdag(m, n, dim, n_iters, eta, lambda, normalization, random, solver)
+    new FFMWithAdag(m, n, dim, n_iters, eta, regParam, normalization, random, solver)
       .run(data)
   }
 }
