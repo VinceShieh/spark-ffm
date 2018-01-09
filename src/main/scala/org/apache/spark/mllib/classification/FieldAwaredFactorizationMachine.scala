@@ -46,7 +46,7 @@ import scala.collection.mutable.WrappedArray
   *            interactions, respectively.
   * @param n_iters number of iterations
   * @param eta step size to be used for each iteration
-    * @param regParam A (Double, Double, Double) 3-Tuple stands for regularization params of bias, one-way interactions and pairwise interactions
+  * @param regParam A (Double, Double) 2-Tuple stands for regularization params of one-way interactions and pairwise interactions
   * @param isNorm whether normalize data
   * @param random whether randomize data
   * @param weights weights of FFMModel
@@ -57,7 +57,7 @@ class FFMModel(val numFeatures: Int,
                val dim: (Boolean, Boolean, Int),
                val n_iters: Int,
                val eta: Double,
-               val regParam: (Double, Double, Double),
+               val regParam: (Double, Double),
                val isNorm: Boolean,
                val random: Boolean,
                val weights: Array[Double],
@@ -148,7 +148,7 @@ class FFMModel(val numFeatures: Int,
   override protected def formatVersion: String = "1.0"
 
   override def save(sc: SparkContext, path: String): Unit = {
-    val data = FFMModel.SaveLoadV1_0.Data(numFeatures, numFields, dim._1, dim._2, dim._3, n_iters, eta, regParam._1, regParam._2, regParam._3, isNorm, random, weights, sgd)
+    val data = FFMModel.SaveLoadV1_0.Data(numFeatures, numFields, dim._1, dim._2, dim._3, n_iters, eta, regParam._1, regParam._2, isNorm, random, weights, sgd)
     FFMModel.SaveLoadV1_0.save(sc, path, data)
   }
 }
@@ -163,7 +163,7 @@ object FFMModel extends Loader[FFMModel] {
 
     /** Model data for model import/export */
     case class Data(numFeatures: Int, numFields: Int, dim0: Boolean, dim1: Boolean, dim2: Int,
-                      n_iters: Int, eta: Double, reg1: Double, reg2:Double, reg3:Double, isNorm: Boolean,
+                      n_iters: Int, eta: Double, reg1: Double, reg2: Double, isNorm: Boolean,
                       random: Boolean, weights: Array[Double], sgd: Boolean)
 
     def save(sc: SparkContext, path: String, data: Data): Unit = {
@@ -174,7 +174,7 @@ object FFMModel extends Loader[FFMModel] {
         ("class" -> this.getClass.getName) ~ ("version" -> thisFormatVersion) ~
           ("numFeatures" -> data.numFeatures) ~ ("numFields" -> data.numFields) ~
           ("dim0" -> data.dim0) ~ ("dim1" -> data.dim1) ~ ("dim2" -> data.dim2)
-          ~ ("n_iters" -> data.n_iters) ~ ("eta" -> data.eta) ~ ("reg1" -> data.reg1) ~ ("reg2" -> data.reg2) ~ ("reg3" -> data.reg3)
+          ~ ("n_iters" -> data.n_iters) ~ ("eta" -> data.eta) ~ ("reg1" -> data.reg1) ~ ("reg2" -> data.reg2)
           ~ ("isNorm" -> data.isNorm) ~ ("random" -> data.random) ~ ("sgd" -> data.sgd)))
       sc.parallelize(Seq(metadata), 1).saveAsTextFile(metadataPath(path))
 
@@ -189,7 +189,7 @@ object FFMModel extends Loader[FFMModel] {
       val dataRDD = sqlContext.parquetFile(dataPath(path))
       // Check schema explicitly since erasure makes it hard to use match-case for checking.
       checkSchema[Data](dataRDD.schema)
-      val dataArray = dataRDD.select("numFeatures", "numFields", "dim0", "dim1", "dim2", "n_iters", "eta", "reg1", "reg2", "reg3", "isNorm", "random", "weights", "sgd").take(1)
+      val dataArray = dataRDD.select("numFeatures", "numFields", "dim0", "dim1", "dim2", "n_iters", "eta", "reg1", "reg2", "isNorm", "random", "weights", "sgd").take(1)
       assert(dataArray.length == 1, s"Unable to load FMModel data from: ${dataPath(path)}")
       val data = dataArray(0)
       val numFeatures = data.getInt(0)
@@ -201,13 +201,12 @@ object FFMModel extends Loader[FFMModel] {
       val eta = data.getDouble(6)
       val reg1 = data.getDouble(7)
       val reg2 = data.getDouble(8)
-      val reg3 = data.getDouble(9)
-      val isNorm = data.getBoolean(10)
-      val random = data.getBoolean(11)
-      val weights = data.getAs[WrappedArray[Double]](12).toArray
-      val sgd = data.getBoolean(13)
+      val isNorm = data.getBoolean(9)
+      val random = data.getBoolean(10)
+      val weights = data.getAs[WrappedArray[Double]](11).toArray
+      val sgd = data.getBoolean(12)
       val dim = (dim0, dim1, dim2)
-      val regParam = (reg1, reg2, reg3)
+      val regParam = (reg1, reg2)
       new FFMModel(numFeatures, numFields, dim, n_iters, eta, regParam, isNorm, random, weights, sgd)
     }
   }
@@ -302,7 +301,7 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     throw new Exception("This part is merged into computeFFM()")
   }
   def computeFFM(label: Double, data2: Array[(Int, Int, Double)], weights: Vector,
-                 r: Double = 1.0, eta: Double, regParam: (Double,Double,Double),
+                 r: Double = 1.0, eta: Double, regParam: (Double, Double),
                  do_update: Boolean, iter: Int, solver: Boolean = true): (BDV[Double], Double) = {
     val weightsArray: Array[Double] = weights.asInstanceOf[DenseVector].values
     val t = predict(data2, weightsArray, r)
@@ -320,11 +319,10 @@ class FFMGradient(m: Int, n: Int, dim: (Boolean, Boolean, Int), sgd: Boolean = t
     var i = 0
     var ii = 0
 
-    val r0 = regParam._1
-    val r1 = regParam._2
-    val r2 = regParam._3
+    val r1 = regParam._1
+    val r2 = regParam._2
     val pos = if (sgd) n * m * k else n * m * k * 2
-    if(k0) weightsArray(weightsArray.length - 1) -= eta * (kappa + r0 * weightsArray(weightsArray.length - 1))
+    if(k0) weightsArray(weightsArray.length - 1) -= eta * kappa
     // j: feature, f: field, v: value
     while (i < valueSize) {
       val j1 = data2(i)._2 - 1

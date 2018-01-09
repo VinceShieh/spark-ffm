@@ -29,7 +29,7 @@ import scala.collection.mutable.ArrayBuffer
   * Created by vincent on 17-1-4.
   */
 class GradientDescentFFM (private var gradient: Gradient, private var updater: Updater,
-                          k: Int, n_iters: Int, eta: Double, regParam: (Double, Double, Double),
+                          k: Int, n_iters: Int, eta: Double, regParam: (Double, Double),
                           normalization: Boolean, random: Boolean) extends Optimizer {
 
   val sgd = true
@@ -115,7 +115,7 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
-               n_iters: Int, eta: Double, regParam: (Double, Double, Double), solver: Boolean): Vector = {
+               n_iters: Int, eta: Double, regParam: (Double, Double), solver: Boolean): Vector = {
     val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, n_iters, eta, regParam, solver)
     weights
   }
@@ -129,7 +129,7 @@ object GradientDescentFFM {
                     initialWeights: Vector,
                     n_iters: Int,
                     eta: Double,
-                    regParam: (Double, Double, Double),
+                    regParam: (Double, Double),
                     solver: Boolean) : (Vector, Array[Double]) = {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)

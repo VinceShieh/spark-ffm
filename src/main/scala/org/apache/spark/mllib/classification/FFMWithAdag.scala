@@ -34,12 +34,12 @@ import scala.util.Random
   *            interactions, respectively.
   * @param n_iters number of iterations
   * @param eta step size to be used for each iteration
-    * @param regParam A (Double, Double, Double) 3-Tuple stands for regularization params of bias, one-way interactions and pairwise interactions
+  * @param regParam A (Double, Double) 2-Tuple stands for regularization params of one-way interactions and pairwise interactions
   * @param normalization whether normalize data
   * @param random whether randomize data
   * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
   */
-class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double, Double, Double),
+class FFMWithAdag(m: Int, n: Int, dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double, Double),
                   normalization: Boolean, random: Boolean, solver: String) extends Serializable {
   private val k0 = dim._1
   private val k1 = dim._2
@@ -129,14 +129,14 @@ object FFMWithAdag {
     *            interactions, respectively.
     * @param n_iters number of iterations
     * @param eta step size to be used for each iteration
-    * @param regParam A (Double, Double, Double) 3-Tuple stands for regularization params of bias, one-way interactions and pairwise interactions
+    * @param regParam A (Double, Double) 2-Tuple stands for regularization params of one-way interactions and pairwise interactions
     * @param normalization whether normalize data
     * @param random whether randomize data
     * @param solver "sgd": parallelizedSGD, parallelizedAdaGrad would be used otherwise
     * @return FFMModel
     */
   def train(data: RDD[(Double, Array[(Int, Int, Double)])], m: Int, n: Int,
-            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double,Double,Double), normalization: Boolean, random: Boolean,
+            dim: (Boolean, Boolean, Int), n_iters: Int, eta: Double, regParam: (Double, Double), normalization: Boolean, random: Boolean,
             solver: String = "sgd"): FFMModel = {
     new FFMWithAdag(m, n, dim, n_iters, eta, regParam, normalization, random, solver)
       .run(data)
