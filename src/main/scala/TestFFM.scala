@@ -10,7 +10,7 @@ object TestFFM extends App {
 
     val sc = new SparkContext(new SparkConf().setAppName("TESTFFM").setMaster("local[4]"))
 
-    if (args.length != 7) {
+    if (args.length != 8) {
       println("testFFM <train_file> <k> <n_iters> <eta> <lambda> " + "<normal> <random>")
     }
 
@@ -29,8 +29,8 @@ object TestFFM extends App {
     val m = data.flatMap(x=>x._2).map(_._1).collect.reduceLeft(_ max _) //+ 1
     val n = data.flatMap(x=>x._2).map(_._2).collect.reduceLeft(_ max _) //+ 1
 
-    val ffm: FFMModel = FFMWithAdag.train(training, m, n, dim = (args(5).toBoolean, args(6).toBoolean, args(1).toInt), n_iters = args(2).toInt,
-      eta = args(3).toDouble, lambda = args(4).toDouble, normalization = false, false, "adagrad")
+    val ffm: FFMModel = FFMWithAdag.train(training, m, n, dim = (args(6).toBoolean, args(7).toBoolean, args(1).toInt), n_iters = args(2).toInt,
+      eta = args(3).toDouble, regParam = (args(4).toDouble, args(5).toDouble), normalization = false, false, "adagrad")
 
     val scores: RDD[(Double, Double)] = testing.map(x => {
       val p = ffm.predict(x._2)

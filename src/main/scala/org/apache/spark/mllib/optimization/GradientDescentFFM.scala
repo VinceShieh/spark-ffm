@@ -29,13 +29,12 @@ import scala.collection.mutable.ArrayBuffer
   * Created by vincent on 17-1-4.
   */
 class GradientDescentFFM (private var gradient: Gradient, private var updater: Updater,
-                          k: Int, n_iters: Int, eta: Double, lambda: Double,
+                          k: Int, n_iters: Int, eta: Double, regParam: (Double, Double),
                           normalization: Boolean, random: Boolean) extends Optimizer {
 
   val sgd = true
   private var stepSize: Double = 1.0
   private var numIterations: Int = 100
-  private var regParam: Double = 0.0
   private var miniBatchFraction: Double = 1.0
   private var convergenceTol: Double = 0.001
   /**
@@ -69,16 +68,6 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
     require(iters >= 0,
       s"Number of iterations must be nonnegative but got ${iters}")
     this.numIterations = iters
-    this
-  }
-
-  /**
-    * Set the regularization parameter. Default 0.0.
-    */
-  def setRegParam(regParam: Double): this.type = {
-    require(regParam >= 0,
-      s"Regularization parameter must be nonnegative but got ${regParam}")
-    this.regParam = regParam
     this
   }
 
@@ -126,8 +115,8 @@ class GradientDescentFFM (private var gradient: Gradient, private var updater: U
 
   }
   def optimize(data: RDD[(Double, Array[(Int, Int, Double)])], initialWeights: Vector,
-               n_iters: Int, eta: Double, lambda: Double, solver: Boolean): Vector = {
-    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, n_iters, eta, lambda, solver)
+               n_iters: Int, eta: Double, regParam: (Double, Double), solver: Boolean): Vector = {
+    val (weights, _) = GradientDescentFFM.parallelAdag(data, gradient, initialWeights, n_iters, eta, regParam, solver)
     weights
   }
 
@@ -140,7 +129,7 @@ object GradientDescentFFM {
                     initialWeights: Vector,
                     n_iters: Int,
                     eta: Double,
-                    lambda: Double,
+                    regParam: (Double, Double),
                     solver: Boolean) : (Vector, Array[Double]) = {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
@@ -151,6 +140,7 @@ object GradientDescentFFM {
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 1
+    println(s"reg para is : ${regParam}")
     while (!converged && i < numIterations) {
       val bcWeights = data.context.broadcast(weights)
       // Sample a subset (fraction miniBatchFraction) of the total data
@@ -159,7 +149,7 @@ object GradientDescentFFM {
       val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
         seqOp = (c, v) => {
           gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
-            1.0, eta, lambda, true, i, solver)
+            1.0, eta, regParam, true, i, solver)
         },
         combOp = (c1, c2) => {
           (c1._1 + c2._1, c1._2 + c2._2)
