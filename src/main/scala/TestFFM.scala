@@ -1,5 +1,6 @@
 import org.apache.spark.{SparkConf, SparkContext}
 import org.apache.spark.mllib.classification._
+import org.apache.spark.mllib.evaluation.BinaryClassificationMetrics
 import org.apache.spark.mllib.linalg.DenseVector
 import org.apache.spark.rdd.RDD
 
@@ -37,8 +38,12 @@ object TestFFM extends App {
       val ret = if (p >= 0.5) 1.0 else -1.0
       (ret, x._1)
     })
+
+    val metrics = new BinaryClassificationMetrics(scores)
+    val auROC = metrics.areaUnderROC
+    val auPRC = metrics.areaUnderPR
     val accuracy = scores.filter(x => x._1 == x._2).count().toDouble / scores.count()
-    println(s"accuracy = $accuracy")
+    println(s"accuracy = $accuracy, Area under ROC = $auROC, Area under precision-recall curve = $auPRC")
   }
 }
 
