@@ -134,9 +134,6 @@ object GradientDescentFFM {
     val numIterations = n_iters
     val stochasticLossHistory = new ArrayBuffer[Double](numIterations)
     var weights = Vectors.dense(initialWeights.toArray)
-    val n = weights.size
-    val slices = data.getNumPartitions
-
 
     var converged = false // indicates whether converged based on convergenceTol
     var i = 1
@@ -146,28 +143,24 @@ object GradientDescentFFM {
       // Sample a subset (fraction miniBatchFraction) of the total data
       // compute and sum up the subgradients on this subset (this is one map-reduce)
 
-      val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
+      val (wSum, lSum, miniBatchSize) = data.treeAggregate((BDV(bcWeights.value.toArray), 0.0, 0L))(
         seqOp = (c, v) => {
-          gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
+          val r = gradient.asInstanceOf[FFMGradient].computeFFM(v._1, (v._2), Vectors.fromBreeze(c._1),
             1.0, eta, regParam, true, i, solver)
+          (r._1, r._2 + c._2, c._3 + 1)
         },
         combOp = (c1, c2) => {
-          (c1._1 + c2._1, c1._2 + c2._2)
+          (c1._1 + c2._1, c1._2 + c2._2, c1._3 + c2._3)
         }) // TODO: add depth level
+      bcWeights.destroy(blocking = false)
 
-      /*
-      val (wSum, lSum) = data.treeAggregate(BDV(bcWeights.value.toArray), 0.0)(
-        seqOp = (c, v) => {
-          computeFFM(v._1, v._2, Vectors.fromBreeze(c._1), 1.0, param.eta, param.lambda, true)
-        },
-        combOp = (c1, c2) => {
-          (c1._1 += c2._1, c1._2 + c2._2)
-        }, 7)
-
-      */
-      weights = Vectors.dense(wSum.toArray.map(_ / slices))
-      stochasticLossHistory += lSum / slices
-      println("iter:" + (i + 1) + ",tr_loss:" + lSum / slices)
+      if (miniBatchSize > 0) {
+        stochasticLossHistory += lSum / miniBatchSize
+        weights = Vectors.dense(wSum.toArray.map(_ / miniBatchSize))
+        println("iter:" + (i + 1) + ",tr_loss:" + lSum / miniBatchSize)
+      } else {
+        println(s"Iteration ($i/$numIterations). The size of sampled batch is zero")
+      }
       i += 1
     }
 
